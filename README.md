@@ -32,50 +32,58 @@ apart is naming hygiene, not networking.
 
 ## Server setup
 
+Run this logged in **as the `perseus` user directly** — not root, not
+`sudo`. It only ever touches that user's own files, crontab, and
+`systemctl --user` units.
+
 ```bash
-sudo -E PUBLIC_HOST=perseus.example.org ./setup-server.sh
+PUBLIC_HOST=perseus.example.org ./setup-server.sh
 ```
 
 See the comment block at the top of `setup-server.sh` for every variable
 it accepts (ports, image tag, repo URLs/branches, GHCR credentials, etc).
 It is idempotent — re-run it any time to pick up new config.
 
-It assumes podman + podman-compose are already installed, the `perseus`
-service user already exists, and the two service ports are opened for you
-externally — none of that is this script's job. It provisions:
+It assumes podman + podman-compose are already installed, this account
+already exists, crond is already running, and the two service ports are
+opened for you externally — none of that is this script's job. It
+provisions:
 
-1. `loginctl enable-linger perseus` — required for rootless podman
-   containers, the user's cron jobs, and `systemctl --user` units to keep
-   running (and come back after reboot) without an active login session.
-2. Clones of both repos under `/home/perseus/apps/`.
+1. `loginctl enable-linger` for itself — required for rootless podman
+   containers, cron jobs, and `systemctl --user` units to keep running
+   (and come back after reboot) without an active login session. If this
+   account isn't allowed to self-service that (`enable-linger` typically
+   needs elevated privileges), the script warns instead of failing — see
+   "Remaining manual steps" below.
+2. Clones of both repos under `~/apps/`.
 3. Env files (`mvp.env`, `morph.env`) **outside** the repo checkouts, so
    `git pull`/re-cloning never clobbers local config — ports, image tag,
    compose project name, `MORPH_URL`, and state/lock/log paths all live
    there.
 4. Two cron entries (one per app, each under its own `flock`), pointed at
    those env files via `ENV_FILE=...`.
-5. `systemctl enable --now crond` and
-   `systemctl --user enable --now podman-restart.service` — the latter is
-   what actually restarts `unless-stopped` containers after a reboot;
-   without it, rootless podman has no daemon watching for the box coming
-   back up.
+5. `systemctl --user enable --now podman-restart.service` — this is what
+   actually restarts `unless-stopped` containers after a reboot; without
+   it (and without lingering, see step 1), rootless podman has no daemon
+   watching for the box coming back up.
 6. An immediate first deploy of both apps, so you get running containers
    right away instead of waiting for the next cron tick.
 
 ## Verifying reboot survival
 
-After setup, reboot the box once and confirm:
+After setup, reboot the box once and confirm, still logged in as
+`perseus`:
 
 ```bash
-sudo -u perseus podman ps    # should show mvp-serve and morph-serve
-sudo -u perseus crontab -l   # both cron lines still present
-systemctl is-active crond
-sudo -u perseus XDG_RUNTIME_DIR=/run/user/$(id -u perseus) \
-  systemctl --user is-active podman-restart.service
+podman ps                                  # mvp-serve and morph-serve
+crontab -l                                 # both cron lines still present
+systemctl --user is-active podman-restart.service
 ```
 
 ## Remaining manual steps
 
+- If the script warned it couldn't enable lingering, ask an admin to run
+  (one-time, requires root): `sudo loginctl enable-linger perseus`.
 - Make the GHCR packages public (or set `GHCR_USER`/`GHCR_TOKEN` in the
   generated env files for private pulls) — links are printed at the end of
   `setup-server.sh`.
