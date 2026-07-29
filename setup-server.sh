@@ -61,10 +61,30 @@ MVP_SERVE_PORT="${MVP_SERVE_PORT:-8000}"
 MORPH_SERVE_PORT="${MORPH_SERVE_PORT:-8081}"
 # If the morph server sits behind a reverse proxy on the standard port, set
 # MORPH_URL directly instead and this is ignored.
+#
+# MVP no longer reads this: it used to be baked into the frozen HTML by a
+# build container running on this host, but that freeze now happens in CI
+# (see MVP_REGISTRY/MVP_CORPORA above), which reads its own `vars.MORPH_URL`
+# GitHub Actions repo variable instead. Still computed and printed at the
+# end of this script as a convenience — set that CI variable to the same
+# value, since it needs to resolve from a visitor's browser either way.
 MORPH_URL="${MORPH_URL:-${PUBLIC_SCHEME}://${PUBLIC_HOST}:${MORPH_SERVE_PORT}/morph}"
 
-IMAGE_TAG="${IMAGE_TAG:-dev-latest}"
 CONTAINER_CMD="${CONTAINER_CMD:-podman}"
+
+# MVP no longer ships as a single image polled/built on this host — CI
+# (MinimumViablePerseus's build-corpus.yml/build-global.yml) freezes pages
+# and pushes them as OCI artifacts; cron-deploy.sh just pulls and extracts
+# them (see that script's header). CORPORA must match the lowercase
+# tag_name values in build-corpus.yml's matrix, not the case-sensitive
+# corpus directory names.
+MVP_REGISTRY="${MVP_REGISTRY:-ghcr.io/perseusdlcode}"
+MVP_CORPORA="${MVP_CORPORA:-greeklit latinlit first1kgreek}"
+ORAS_VERSION="${ORAS_VERSION:-1.2.0}"
+
+# Still used by pdl-morph-server's own env file below — that app is
+# unaffected by MVP's corpus split and still ships as a single polled image.
+IMAGE_TAG="${IMAGE_TAG:-dev-latest}"
 
 # Optional GHCR credentials, only needed if the packages are private.
 GHCR_USER="${GHCR_USER:-}"
@@ -103,7 +123,27 @@ export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 
 # ----- 2. Clone/update both repos -------------------------------------------
 mkdir -p "$APPS_DIR" "$MVP_DATA_DIR" "$MORPH_DATA_DIR" \
-  "${MVP_DATA_DIR}/build-a" "${MVP_DATA_DIR}/build-b"
+  "${MVP_DATA_DIR}/build-a" "${MVP_DATA_DIR}/build-b" "${MVP_DATA_DIR}/state" \
+  "${APPS_DIR}/bin"
+
+# ----- 1b. Install oras (cron-deploy.sh pulls GHCR artifacts with it) -------
+ORAS_BIN="${APPS_DIR}/bin/oras"
+if [ ! -x "$ORAS_BIN" ]; then
+  log "Installing oras v${ORAS_VERSION}..."
+  case "$(uname -m)" in
+    x86_64) ORAS_ARCH=amd64 ;;
+    aarch64|arm64) ORAS_ARCH=arm64 ;;
+    *) die "Unsupported architecture for oras: $(uname -m)" ;;
+  esac
+  ORAS_TMP="$(mktemp -d)"
+  curl -fsSL \
+    "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" \
+    | tar -xz -C "$ORAS_TMP" oras
+  install -m 0755 "${ORAS_TMP}/oras" "$ORAS_BIN"
+  rm -rf "$ORAS_TMP"
+else
+  log "oras already installed at ${ORAS_BIN}."
+fi
 
 clone_or_update() {
   local url="$1" dir="$2" branch="$3"
@@ -125,16 +165,15 @@ chmod +x "${MVP_DIR}/deploy/cron-deploy.sh" "${MORPH_DIR}/deploy/cron-deploy.sh"
 # ----- 3. Per-app env files (kept outside the repo checkouts) --------------
 cat > "$MVP_ENV_FILE" <<EOF
 # Managed by setup-server.sh — safe to hand-edit; not touched by git pull.
-IMAGE=ghcr.io/perseusdlcode/minimumviableperseus
-IMAGE_TAG=${IMAGE_TAG}
+REGISTRY=${MVP_REGISTRY}
+CORPORA=${MVP_CORPORA}
+ORAS_BIN=${ORAS_BIN}
 CONTAINER_CMD=${CONTAINER_CMD}
 COMPOSE_PROJECT=mvp
 SERVE_PORT=${MVP_SERVE_PORT}
 SERVE_CTR=mvp-serve
-BUILD_CTR=mvp-build
 BUILD_DIR=${MVP_DATA_DIR}/build
-STATE_FILE=${MVP_DATA_DIR}/last-digest
-MORPH_URL=${MORPH_URL}
+STATE_DIR=${MVP_DATA_DIR}/state
 GHCR_USER=${GHCR_USER}
 GHCR_TOKEN=${GHCR_TOKEN}
 EOF
@@ -195,7 +234,12 @@ Setup complete.
 
   pdl-morph-server:        http://${PUBLIC_HOST}:${MORPH_SERVE_PORT}
   MinimumViablePerseus:     http://${PUBLIC_HOST}:${MVP_SERVE_PORT}
-  MORPH_URL baked into MVP: ${MORPH_URL}
+
+  MVP's pages are no longer built here — they're frozen in CI and this
+  host only pulls the finished artifacts (see cron-deploy.sh). MORPH_URL
+  is baked in at that CI build step, not by this script:
+    MORPH_URL to set as the "MORPH_URL" repo variable in
+    MinimumViablePerseus's GitHub Actions settings: ${MORPH_URL}
 
 Config lives in:
   ${MVP_ENV_FILE}
@@ -210,14 +254,23 @@ Cron (as $(id -un)):
   ${MORPH_CRON_LINE}
 
 Remaining manual steps, if not already done:
-  1. Make sure both GHCR packages are public (or set GHCR_USER/GHCR_TOKEN
-     in the env files above for private pulls):
-       https://github.com/orgs/perseusdlcode/packages/container/minimumviableperseus/settings
+  1. Make sure every GHCR package this host pulls is public (or set
+     GHCR_USER/GHCR_TOKEN in the env files above for private pulls) —
+     each is created on its first CI push, so these may not exist yet:
        https://github.com/orgs/perseusdlcode/packages/container/pdl-morph-server/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-greeklit/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-greeklit-manifest/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-latinlit/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-latinlit-manifest/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-first1kgreek/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-first1kgreek-manifest/settings
+       https://github.com/orgs/perseusdlcode/packages/container/mvp-global/settings
   2. If MORPH_URL should go through a reverse proxy / TLS terminator
-     instead of a bare port, set MORPH_URL directly in ${MVP_ENV_FILE}
-     and re-run this script (or just edit the file — cron picks it up
-     next tick).
+     instead of a bare port, set it as the "MORPH_URL" repo variable in
+     MinimumViablePerseus's GitHub Actions settings (Settings > Secrets
+     and variables > Actions > Variables) — this script no longer writes
+     it anywhere on this host, since it's read at CI build time, not
+     serve time.
   3. If lingering couldn't be enabled above, ask an admin to run:
        sudo loginctl enable-linger $(id -un)
      (one-time, requires root — everything else in this script does not).
