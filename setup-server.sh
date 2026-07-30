@@ -61,7 +61,7 @@ PUBLIC_HOST="${PUBLIC_HOST:?Set PUBLIC_HOST to the public hostname or IP visitor
 PUBLIC_SCHEME="${PUBLIC_SCHEME:-https}"
 
 MVP_SERVE_PORT="${MVP_SERVE_PORT:-8000}"
-MORPH_SERVE_PORT="${MORPH_SERVE_PORT:-8081}"
+MORPH_SERVE_PORT="${MORPH_SERVE_PORT:-5000}"
 # If the morph server sits behind a reverse proxy on the standard port, set
 # MORPH_URL directly instead and this is ignored.
 #
