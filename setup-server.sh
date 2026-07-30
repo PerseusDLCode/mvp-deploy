@@ -166,7 +166,7 @@ chmod +x "${MVP_DIR}/deploy/cron-deploy.sh" "${MORPH_DIR}/deploy/cron-deploy.sh"
 cat > "$MVP_ENV_FILE" <<EOF
 # Managed by setup-server.sh — safe to hand-edit; not touched by git pull.
 REGISTRY=${MVP_REGISTRY}
-CORPORA=${MVP_CORPORA}
+CORPORA="${MVP_CORPORA}"
 ORAS_BIN=${ORAS_BIN}
 CONTAINER_CMD=${CONTAINER_CMD}
 COMPOSE_PROJECT=mvp
