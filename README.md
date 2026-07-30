@@ -71,9 +71,11 @@ See the comment block at the top of `setup-server.sh` for every variable
 it accepts (ports, image tag, repo URLs/branches, GHCR credentials, etc).
 It is idempotent — re-run it any time to pick up new config.
 
-It assumes podman + podman-compose are already installed, this account
-already exists, crond is already running, and the two service ports are
-opened for you externally — none of that is this script's job. It
+It assumes podman + podman-compose + zstd are already installed (zstd
+extracts the `.tar.zst` artifacts `cron-deploy.sh` pulls — a one-time root
+step, e.g. `dnf install -y zstd`), this account already exists, crond is
+already running, and the two service ports are opened for you externally
+— none of that is this script's job. It
 provisions:
 
 1. `loginctl enable-linger` for itself — required for rootless podman

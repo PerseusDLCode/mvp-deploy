@@ -8,9 +8,12 @@
 # here only touches that user's own files, crontab, and systemd --user
 # units.
 #
-# Assumes podman + podman-compose are already installed, this user account
-# already exists, crond is already running, and the two service ports are
-# opened for you externally — none of that is this script's job.
+# Assumes podman + podman-compose + zstd are already installed (zstd is
+# needed to extract the .tar.zst artifacts cron-deploy.sh pulls — GNU tar's
+# --zstd shells out to it rather than linking it in, unlike gzip), this
+# user account already exists, crond is already running, and the two
+# service ports are opened for you externally — none of that is this
+# script's job.
 #
 # What it does:
 #   1. Enables lingering for this user (if not already enabled), so
