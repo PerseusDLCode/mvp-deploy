@@ -159,9 +159,17 @@ clone_or_update() {
   local url="$1" dir="$2" branch="$3"
   if [ -d "${dir}/.git" ]; then
     log "Updating $(basename "$dir")..."
+    # Reset against FETCH_HEAD, not origin/<branch>: a --depth 1 clone
+    # implicitly limits the remote's fetch refspec to whichever single
+    # branch it was originally cloned with, so origin/<branch> may not
+    # exist as a tracking ref if this host has since switched branches
+    # (e.g. an existing dev checkout being updated to track main).
+    # checkout -B (re)creates the local branch pointing at FETCH_HEAD
+    # regardless of whether it already existed, so this works the first
+    # time a branch is switched to as well as on every later update.
     git -C "$dir" fetch --depth 1 origin "$branch"
-    git -C "$dir" checkout "$branch"
-    git -C "$dir" reset --hard "origin/${branch}"
+    git -C "$dir" checkout -B "$branch" FETCH_HEAD
+    git -C "$dir" reset --hard FETCH_HEAD
   else
     log "Cloning $(basename "$dir")..."
     git clone --branch "$branch" --depth 1 "$url" "$dir"
