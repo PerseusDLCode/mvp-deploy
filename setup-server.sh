@@ -89,6 +89,13 @@ ORAS_VERSION="${ORAS_VERSION:-1.2.0}"
 # unaffected by MVP's corpus split and still ships as a single polled image.
 IMAGE_TAG="${IMAGE_TAG:-dev-latest}"
 
+# Which alias of the MVP corpus/global artifacts this host tracks — set by
+# which branch's build-corpus.yml/build-global.yml push pushed them (see
+# MinimumViablePerseus's build-corpus.yml: main -> latest = production,
+# dev -> staging). Production hosts should leave this at the default;
+# staging hosts should set TAG=staging.
+TAG="${TAG:-latest}"
+
 # Optional GHCR credentials, only needed if the packages are private.
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
@@ -170,6 +177,7 @@ cat > "$MVP_ENV_FILE" <<EOF
 # Managed by setup-server.sh — safe to hand-edit; not touched by git pull.
 REGISTRY=${MVP_REGISTRY}
 CORPORA="${MVP_CORPORA}"
+TAG=${TAG}
 ORAS_BIN=${ORAS_BIN}
 CONTAINER_CMD=${CONTAINER_CMD}
 COMPOSE_PROJECT=mvp
