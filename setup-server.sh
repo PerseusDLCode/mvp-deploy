@@ -82,7 +82,7 @@ CONTAINER_CMD="${CONTAINER_CMD:-podman}"
 # tag_name values in build-corpus.yml's matrix, not the case-sensitive
 # corpus directory names.
 MVP_REGISTRY="${MVP_REGISTRY:-ghcr.io/perseusdlcode}"
-MVP_CORPORA="${MVP_CORPORA:-greeklit latinlit first1kgreek}"
+MVP_CORPORA="${MVP_CORPORA:-greeklit latinlit first1kgreek nd-dlc grcnewxml}"
 ORAS_VERSION="${ORAS_VERSION:-1.2.0}"
 
 # Still used by pdl-morph-server's own env file below — that app is
