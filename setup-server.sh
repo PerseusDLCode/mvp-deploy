@@ -134,7 +134,7 @@ export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 # ----- 2. Clone/update both repos -------------------------------------------
 mkdir -p "$APPS_DIR" "$MVP_DATA_DIR" "$MORPH_DATA_DIR" \
   "${MVP_DATA_DIR}/build-a" "${MVP_DATA_DIR}/build-b" "${MVP_DATA_DIR}/state" \
-  "${APPS_DIR}/bin"
+  "${MVP_DATA_DIR}/search-index" "${APPS_DIR}/bin"
 
 # ----- 1b. Install oras (cron-deploy.sh pulls GHCR artifacts with it) -------
 ORAS_BIN="${APPS_DIR}/bin/oras"
@@ -193,6 +193,7 @@ SERVE_PORT=${MVP_SERVE_PORT}
 SERVE_CTR=mvp-serve
 BUILD_DIR=${MVP_DATA_DIR}/build
 STATE_DIR=${MVP_DATA_DIR}/state
+SEARCH_DIR=${MVP_DATA_DIR}/search-index
 GHCR_USER=${GHCR_USER}
 GHCR_TOKEN=${GHCR_TOKEN}
 EOF
