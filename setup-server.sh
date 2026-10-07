@@ -132,9 +132,11 @@ fi
 export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 
 # ----- 2. Clone/update both repos -------------------------------------------
+# Not pre-creating ${MVP_DATA_DIR}/build here: cron-deploy.sh now deploys to
+# a single directory that it creates (and fully repopulates) itself on first
+# run, rather than a pair of blue-green directories provisioned up front.
 mkdir -p "$APPS_DIR" "$MVP_DATA_DIR" "$MORPH_DATA_DIR" \
-  "${MVP_DATA_DIR}/build-a" "${MVP_DATA_DIR}/build-b" "${MVP_DATA_DIR}/state" \
-  "${MVP_DATA_DIR}/search-index" "${APPS_DIR}/bin"
+  "${MVP_DATA_DIR}/state" "${MVP_DATA_DIR}/search-index" "${APPS_DIR}/bin"
 
 # ----- 1b. Install oras (cron-deploy.sh pulls GHCR artifacts with it) -------
 ORAS_BIN="${APPS_DIR}/bin/oras"

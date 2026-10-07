@@ -9,9 +9,10 @@ frozen in CI, one corpus at a time and in parallel (see
 `MinimumViablePerseus`'s `build-corpus.yml`/`build-global.yml`), and pushed
 to GHCR as plain OCI artifacts — not runnable images. This host's
 `cron-deploy.sh` just polls those artifacts' digests and, when any changed,
-pulls and extracts them straight into the live blue-green directory; no
-container here ever runs `mvp-build`. `pdl-morph-server` is unaffected by
-any of this and still ships as a single polled image, built the old way.
+pulls and extracts them into a staging directory and swaps it into place as
+the single live directory; no container here ever runs `mvp-build`.
+`pdl-morph-server` is unaffected by any of this and still ships as a single
+polled image, built the old way.
 
 ## Why they don't need to share a container network
 
@@ -44,9 +45,9 @@ apart is naming hygiene, not networking.
   pull and extract pre-built OCI artifacts (`oras manifest fetch`/`pull`)
   instead of pulling and running a build image. Tracks one digest per
   artifact under `STATE_DIR` rather than a single `STATE_FILE`, and fully
-  repopulates the inactive blue-green slot from every artifact on any
-  change, rather than patching in place — see the script's own header
-  for why.
+  populates a staging directory from every artifact on any change (rather
+  than patching in place), then swaps it into place as the single live
+  directory — see the script's own header for why.
 - **MinimumViablePerseus/deploy/compose.yaml** — dropped the `build`
   service entirely; only `serve` (nginx) remains, since no build ever
   runs on this host anymore.
