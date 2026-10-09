@@ -242,11 +242,15 @@ if ! systemctl --user enable --now podman-restart.service 2>/dev/null; then
 fi
 
 # ----- 6. First deploy --------------------------------------------------------
+# Under the same lock files as the cron entries above: on a re-run, a cron
+# tick may already be mid-deploy, and two cron-deploy.sh runs racing over
+# MVP's build.new staging dir leave it half-deleted. Blocking (no -n), so
+# this waits for that tick to finish instead of skipping the deploy.
 log "Running initial deploy of pdl-morph-server..."
-ENV_FILE="$MORPH_ENV_FILE" "${MORPH_DIR}/deploy/cron-deploy.sh"
+ENV_FILE="$MORPH_ENV_FILE" /usr/bin/flock "${MORPH_DATA_DIR}/deploy.lock" "${MORPH_DIR}/deploy/cron-deploy.sh"
 
-log "Running initial deploy of MinimumViablePerseus..."
-ENV_FILE="$MVP_ENV_FILE" "${MVP_DIR}/deploy/cron-deploy.sh"
+log "Running initial deploy of MinimumViablePerseus (waits for any in-progress cron deploy)..."
+ENV_FILE="$MVP_ENV_FILE" /usr/bin/flock "${MVP_DATA_DIR}/deploy.lock" "${MVP_DIR}/deploy/cron-deploy.sh"
 
 log "Done."
 cat <<SUMMARY
