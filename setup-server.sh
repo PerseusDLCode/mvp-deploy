@@ -31,6 +31,9 @@
 #      automatically after a reboot.
 #   6. Runs an initial deploy of both apps immediately, so you don't have
 #      to wait for the first cron tick.
+#   7. Runs setup-redirect.sh to add perseus-redirect (the legacy-Perseus
+#      redirect server) the same way. SKIP_REDIRECT=1 skips it. On a host
+#      that's already set up, run setup-redirect.sh on its own instead.
 #
 # Configure via environment variables before running, e.g.:
 #
@@ -252,6 +255,23 @@ ENV_FILE="$MORPH_ENV_FILE" /usr/bin/flock "${MORPH_DATA_DIR}/deploy.lock" "${MOR
 log "Running initial deploy of MinimumViablePerseus (waits for any in-progress cron deploy)..."
 ENV_FILE="$MVP_ENV_FILE" /usr/bin/flock "${MVP_DATA_DIR}/deploy.lock" "${MVP_DIR}/deploy/cron-deploy.sh"
 
+# ----- 7. perseus-redirect ----------------------------------------------------
+# Its own script, so an existing host can add it without re-running this
+# one (which rewrites mvp.env/morph.env). Not fatal: MVP and the morph
+# server are already up, and its cron entry retries the deploy.
+REDIRECT_SUMMARY="skipped (SKIP_REDIRECT=1)"
+if [ -z "${SKIP_REDIRECT:-}" ]; then
+  if REDIRECT_MVP_ORIGIN="${REDIRECT_MVP_ORIGIN:-${PUBLIC_SCHEME}://${PUBLIC_HOST}}" \
+     MORPH_URL="$MORPH_URL" APPS_DIR="$APPS_DIR" CONTAINER_CMD="$CONTAINER_CMD" \
+     GHCR_USER="$GHCR_USER" GHCR_TOKEN="$GHCR_TOKEN" CRON_SCHEDULE="$CRON_SCHEDULE" \
+     "$(dirname "$0")/setup-redirect.sh"; then
+    REDIRECT_SUMMARY="http://${PUBLIC_HOST}:${REDIRECT_SERVE_PORT:-8090} (config: ${APPS_DIR}/redirect.env)"
+  else
+    REDIRECT_SUMMARY="FAILED, see above; re-run ./setup-redirect.sh once fixed"
+    warn "perseus-redirect setup failed; MVP and pdl-morph-server are unaffected."
+  fi
+fi
+
 log "Done."
 cat <<SUMMARY
 
@@ -260,6 +280,7 @@ Setup complete.
 
   pdl-morph-server:        http://${PUBLIC_HOST}:${MORPH_SERVE_PORT}
   MinimumViablePerseus:     http://${PUBLIC_HOST}:${MVP_SERVE_PORT}
+  perseus-redirect:         ${REDIRECT_SUMMARY}
 
   MVP's pages are no longer built here — they're frozen in CI and this
   host only pulls the finished artifacts (see cron-deploy.sh). MORPH_URL
@@ -284,6 +305,7 @@ Remaining manual steps, if not already done:
      GHCR_USER/GHCR_TOKEN in the env files above for private pulls) —
      each is created on its first CI push, so these may not exist yet:
        https://github.com/orgs/perseusdlcode/packages/container/pdl-morph-server/settings
+       https://github.com/orgs/perseusdlcode/packages/container/perseus-redirect/settings
        https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-greeklit/settings
        https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-greeklit-manifest/settings
        https://github.com/orgs/perseusdlcode/packages/container/mvp-corpus-latinlit/settings
@@ -301,7 +323,7 @@ Remaining manual steps, if not already done:
        sudo loginctl enable-linger $(id -un)
      (one-time, requires root — everything else in this script does not).
   4. Reboot once to confirm containers and cron come back on their own:
-     `podman ps` should show mvp-serve and morph-serve running within a
+     `podman ps` should show mvp-serve, morph-serve and redirect-serve running within a
      minute or two of boot.
 --------------------------------------------------------------------
 SUMMARY

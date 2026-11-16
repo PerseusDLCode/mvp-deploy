@@ -1,8 +1,18 @@
-# Combined deployment: MinimumViablePerseus + pdl-morph-server
+# Combined deployment: MinimumViablePerseus + pdl-morph-server + perseus-redirect
 
-Runs both apps on one CentOS host via rootless podman, each still deployed
-independently by its own `deploy/cron-deploy.sh` (polling GHCR every 10
-minutes), but provisioned together so containers survive a reboot.
+Runs the three apps on one CentOS host via rootless podman. Each is still
+deployed independently by its own `deploy/cron-deploy.sh` (polling GHCR
+every 10 minutes), but they're provisioned together so containers survive a
+reboot.
+
+- **MinimumViablePerseus (MVP):** the static site.
+- **pdl-morph-server:** the morphology page.
+- **perseus-redirect:** answers the legacy Perseus (hopper) URLs with
+  redirects into MVP and the morph page.
+
+**Already running MVP and the morph server?** You don't need to re-run
+`setup-server.sh`; see
+[Adding perseus-redirect to an existing host](#adding-perseus-redirect-to-an-existing-host).
 
 MVP itself no longer builds anything on this host. Its ~200,000 pages are
 frozen in CI, one corpus at a time and in parallel (see
@@ -70,7 +80,26 @@ PUBLIC_HOST=perseus.example.org ./setup-server.sh
 
 See the comment block at the top of `setup-server.sh` for every variable
 it accepts (ports, image tag, repo URLs/branches, GHCR credentials, etc).
-It is idempotent — re-run it any time to pick up new config.
+It is idempotent — re-run it any time to pick up new config. Note that a
+re-run regenerates `mvp.env` and `morph.env` from the variables you pass
+(hand edits to those two are lost), and redeploys both apps.
+
+On a fresh host it finishes by running `setup-redirect.sh`, so pass the
+redirect server's settings too:
+
+```bash
+PUBLIC_HOST=perseus.example.org \
+REDIRECT_MVP_ORIGIN=https://www.perseus.tufts.edu \
+REDIRECT_TRUSTED_PROXIES=10.0.0.0/8 \
+./setup-server.sh
+```
+
+`REDIRECT_MVP_ORIGIN` defaults to `https://$PUBLIC_HOST`. `SKIP_REDIRECT=1`
+leaves the redirect server out. If its setup fails (say its image isn't on
+GHCR yet), MVP and the morph server are unaffected; fix the cause and run
+`./setup-redirect.sh`. See
+[Adding perseus-redirect to an existing host](#adding-perseus-redirect-to-an-existing-host)
+for prerequisites and the load balancer step.
 
 It assumes podman + podman-compose + zstd are already installed (zstd
 extracts the `.tar.zst` artifacts `cron-deploy.sh` pulls — a one-time root
@@ -101,14 +130,114 @@ provisions:
 6. An immediate first deploy of both apps, so you get running containers
    right away instead of waiting for the next cron tick.
 
+## Adding perseus-redirect to an existing host
+
+`setup-redirect.sh` adds perseus-redirect next to a running MVP and morph
+server. It only touches perseus-redirect's own files:
+`~/apps/perseus-redirect/`, `~/apps/redirect.env`, `~/apps/redirect-data/`
+and one new cron line. It doesn't rewrite `mvp.env` or `morph.env`, and it
+doesn't redeploy MVP or the morph server.
+
+### Before you start
+
+1. **The image exists.** Pushing perseus-redirect's `main` branch to
+   `github.com/PerseusDLCode/perseus-redirect` makes CI publish
+   `ghcr.io/perseusdlcode/perseus-redirect:latest`. Then make the package
+   public at
+   https://github.com/orgs/perseusdlcode/packages/container/perseus-redirect/settings,
+   or pass `GHCR_USER`/`GHCR_TOKEN`.
+2. **MVP publishes its manifest.** From the host, this should print a JSON
+   object starting with `{"schema_version": 1`:
+
+   ```bash
+   curl -fsS https://<public MVP origin>/cts-urns.json | head -c 100
+   ```
+
+   Until it does, the redirect server answers reading-view links with 503.
+3. **You know the load balancer's address,** as an IP or CIDR. That lets
+   the server rate-limit per visitor instead of treating the load balancer
+   as one client.
+4. **Port 8090 is free,** or pick another with `REDIRECT_SERVE_PORT`.
+
+### Install
+
+As the `perseus` user, from this repo's checkout:
+
+```bash
+git pull
+REDIRECT_MVP_ORIGIN=https://www.perseus.tufts.edu \
+REDIRECT_TRUSTED_PROXIES=10.0.0.0/8 \
+./setup-redirect.sh
+```
+
+`REDIRECT_MVP_ORIGIN` is where redirects point, and where the server
+fetches `/cts-urns.json`. Optional settings:
+- `MORPH_URL`: where legacy morph links go. The default is
+  `REDIRECT_MVP_ORIGIN/morph`.
+- `REDIRECT_SERVE_PORT`, `REDIRECT_IMAGE_TAG`, and the others listed in the
+  script's header.
+
+The script clones the repo, writes `~/apps/redirect.env`, adds the cron
+entry, deploys, waits for `/healthz`, and prints two test `curl`s. It's safe
+to re-run.
+
+### Check it
+
+```bash
+curl -s http://127.0.0.1:8090/healthz      # "ok": true, manifest version count
+curl -sI 'http://127.0.0.1:8090/hopper/text?doc=Perseus:text:1999.01.0133:book=1'
+                                            # 302, Location: <MVP>/urn:cts:greekLit:tlg0012...
+curl -sI 'http://127.0.0.1:8090/hopper/morph?l=lo/gos&la=greek'
+                                            # 302, Location: <MORPH_URL>?language=grc&word=lo%2Fgos
+podman ps                                   # redirect-serve, (healthy)
+```
+
+### Go live: load balancer
+
+Nothing reaches the server until the load balancer sends it traffic. This
+step is for Tufts IT.
+
+- **The legacy hostname is separate from MVP's:** route all of it to
+  `<host>:8090`.
+- **It's the same hostname:** route the legacy paths `/hopper/`, `/cgi-bin/`
+  and `/texts/urn:` to `<host>:8090`, plus `/citations/` if it isn't used by
+  MVP. Everything else goes to MVP.
+- **Either way:** keep the new morph page (`/morph`, `/morph/…`) routed to
+  the morph server, ahead of any catch-all to this one. If it ever reaches
+  perseus-redirect anyway, the server answers 404 instead of looping.
+
+### Day to day
+
+- **Settings:** edit `~/apps/redirect.env`. The next cron tick (within 10
+  minutes) recreates the container with the new settings. Re-running
+  `setup-redirect.sh` keeps your edits; `REDIRECT_REWRITE_ENV=1`
+  regenerates the file from scratch.
+- **Switch to permanent redirects:** set `REDIRECT_STATUS=301` once the
+  replayed coverage looks right (see perseus-redirect's README). Browsers
+  cache 301s, so do this last.
+- **New spreadsheet data or code:** push perseus-redirect's `main`. This
+  host picks up the new image within 10 minutes.
+- **Logs:**
+  - `~/apps/redirect-data/deploy.log` has the deploys.
+  - `podman logs redirect-serve` has a traffic summary every 15 minutes,
+    including the most-requested links that didn't resolve.
+- **Remove it:**
+
+  ```bash
+  crontab -l | grep -v 'perseus-deploy: redirect' | crontab -
+  podman rm -f redirect-serve
+  ```
+
+  Then point the load balancer back.
+
 ## Verifying reboot survival
 
 After setup, reboot the box once and confirm, still logged in as
 `perseus`:
 
 ```bash
-podman ps                                  # mvp-serve and morph-serve
-crontab -l                                 # both cron lines still present
+podman ps                                  # mvp-serve, morph-serve and redirect-serve
+crontab -l                                 # all three cron lines still present
 systemctl --user is-active podman-restart.service
 ```
 
